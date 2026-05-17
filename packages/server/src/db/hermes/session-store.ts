@@ -12,6 +12,7 @@ export interface HermesSessionRow {
   source: string
   user_id: string | null
   model: string
+  provider: string
   title: string | null
   started_at: number
   ended_at: number | null
@@ -85,6 +86,7 @@ function mapSessionRow(row: Record<string, unknown>): HermesSessionRow {
     source: String(row.source || 'api_server'),
     user_id: row.user_id != null ? String(row.user_id) : null,
     model: String(row.model || ''),
+    provider: String(row.provider || ''),
     title,
     started_at: Number(row.started_at || 0),
     ended_at: row.ended_at != null ? Number(row.ended_at) : null,
@@ -129,15 +131,18 @@ function mapMessageRow(row: Record<string, unknown>): HermesMessageRow {
 export function createSession(data: {
   id: string
   profile?: string
+  source?: string
   model?: string
+  provider?: string
   title?: string
   workspace?: string
 }): HermesSessionRow {
   const now = Math.floor(Date.now() / 1000)
+  const source = data.source || 'api_server'
   if (!isSqliteAvailable()) {
     return {
-      id: data.id, profile: data.profile || 'default', source: 'api_server',
-      user_id: null, model: data.model || '', title: data.title || null,
+      id: data.id, profile: data.profile || 'default', source,
+      user_id: null, model: data.model || '', provider: data.provider || '', title: data.title || null,
       started_at: now, ended_at: null, end_reason: null,
       message_count: 0, tool_call_count: 0,
       input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,
@@ -147,9 +152,9 @@ export function createSession(data: {
   }
   const db = getDb()!
   db.prepare(
-    `INSERT INTO ${SESSIONS_TABLE} (id, profile, source, model, title, started_at, last_active, workspace)
-     VALUES (?, ?, 'api_server', ?, ?, ?, ?, ?)`,
-  ).run(data.id, data.profile || 'default', data.model || '', data.title || null, now, now, data.workspace || null)
+    `INSERT INTO ${SESSIONS_TABLE} (id, profile, source, model, provider, title, started_at, last_active, workspace)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(data.id, data.profile || 'default', source, data.model || '', data.provider || '', data.title || null, now, now, data.workspace || null)
   return getSession(data.id)!
 }
 
@@ -197,6 +202,14 @@ export function deleteSession(id: string): boolean {
   db.prepare(`DELETE FROM ${MESSAGES_TABLE} WHERE session_id = ?`).run(id)
   const result = db.prepare(`DELETE FROM ${SESSIONS_TABLE} WHERE id = ?`).run(id)
   return result.changes > 0
+}
+
+export function clearSessionMessages(id: string): number {
+  if (!isSqliteAvailable()) return 0
+  const db = getDb()!
+  const result = db.prepare(`DELETE FROM ${MESSAGES_TABLE} WHERE session_id = ?`).run(id)
+  updateSessionStats(id)
+  return Number(result.changes)
 }
 
 export function renameSession(id: string, title: string): boolean {
@@ -458,12 +471,4 @@ export function getSessionDetailPaginated(
     limit,
     hasMore: offset + messages.length < total,
   }
-}
-
-// --- Session store mode ---
-
-import { config } from '../../config'
-
-export function useLocalSessionStore(): boolean {
-  return config.sessionStore === 'local'
 }

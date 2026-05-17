@@ -2,10 +2,11 @@ import { readdir, readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { createHash } from 'crypto'
 import {
-  readConfigYaml, writeConfigYaml,
+  readConfigYaml, updateConfigYaml,
   safeReadFile, extractDescription, listFilesRecursive, getHermesDir,
 } from '../../services/config-helpers'
 import { pinSkill } from '../../services/hermes/hermes-cli'
+import { getSkillUsageStatsFromDb } from '../../db/hermes/sessions-db'
 
 /** Read bundled manifest as a name→hash map from ~/.hermes/skills/.bundled_manifest */
 function readBundledManifest(manifestContent: string | null): Map<string, string> {
@@ -239,6 +240,18 @@ export async function list(ctx: any) {
   }
 }
 
+export async function usageStats(ctx: any) {
+  const rawDays = parseInt(String(ctx.query?.days ?? '7'), 10)
+  const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(rawDays, 365) : 7
+
+  try {
+    ctx.body = await getSkillUsageStatsFromDb(days)
+  } catch (err: any) {
+    ctx.status = 500
+    ctx.body = { error: `Failed to read skill usage stats: ${err.message}` }
+  }
+}
+
 export async function toggle(ctx: any) {
   const { name, enabled } = ctx.request.body as { name?: string; enabled?: boolean }
   if (!name || typeof enabled !== 'boolean') {
@@ -247,14 +260,15 @@ export async function toggle(ctx: any) {
     return
   }
   try {
-    const config = await readConfigYaml()
-    if (!config.skills) config.skills = {}
-    if (!Array.isArray(config.skills.disabled)) config.skills.disabled = []
-    const disabled = config.skills.disabled as string[]
-    const idx = disabled.indexOf(name)
-    if (enabled) { if (idx !== -1) disabled.splice(idx, 1) }
-    else { if (idx === -1) disabled.push(name) }
-    await writeConfigYaml(config)
+    await updateConfigYaml((config) => {
+      if (!config.skills) config.skills = {}
+      if (!Array.isArray(config.skills.disabled)) config.skills.disabled = []
+      const disabled = config.skills.disabled as string[]
+      const idx = disabled.indexOf(name)
+      if (enabled) { if (idx !== -1) disabled.splice(idx, 1) }
+      else { if (idx === -1) disabled.push(name) }
+      return config
+    })
     ctx.body = { success: true }
   } catch (err: any) {
     ctx.status = 500
