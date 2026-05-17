@@ -203,7 +203,7 @@ Open **http://localhost:6060**
 - On first run with auth enabled, the token is printed to container logs
 - All runtime settings are environment-variable driven in `docker-compose.yml`
 - Gateway ports 8642-8670 are exposed for multi-profile support
-- Workspace is mounted at `/home/agent/workspace` for file operations
+- Workspace is mounted at `/root/workspace` for file operations
 
 For detailed notes and troubleshooting, see [`docs/docker.md`](./docs/docker.md).
 
